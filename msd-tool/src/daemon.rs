@@ -85,10 +85,14 @@ fn check_selinux(allow_permissive: bool) -> Result<()> {
 
     // Our policy denies connections to ourselves. Try it to test that the
     // policy is actually loaded.
-    match UnixStream::connect_addr(&socket_addr()) {
-        Ok(_) => bail!("Denying connection because SELinux policy is broken"),
-        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {}
-        Err(e) => return Err(e).context("Self connection failed for unexpected reason"),
+    if !allow_permissive {
+        // Our policy denies connections to ourselves. Try it to test that the
+        // policy is actually loaded.
+        match UnixStream::connect_addr(&socket_addr()) {
+            Ok(_) => bail!("Denying connection because SELinux policy is broken"),
+            Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {}
+            Err(e) => return Err(e).context("Self connection failed for unexpected reason"),
+        }
     }
 
     Ok(())
