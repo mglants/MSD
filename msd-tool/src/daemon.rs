@@ -363,7 +363,7 @@ pub fn subcommand_daemon(cli: &DaemonCli) -> Result<()> {
                 )
                 .entered();
 
-                if ucred.pid == rustix::process::getpid() {
+                if ucred.pid == rustix::process::getpid() && !allow_permissive {
                     error!("SELinux rules are broken; able to connect to self");
                     return;
                 }
