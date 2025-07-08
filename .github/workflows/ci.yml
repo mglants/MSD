@@ -43,3 +43,9 @@ jobs:
       - name: Build and test
         # Debug build only since release builds require a signing key
         run: ./gradlew --no-daemon build zipDebug -x assembleRelease
+
+      - name: Upload debug build
+        uses: actions/upload-artifact@v4 # v4.3.1
+        with:
+          name: msd-debug
+          path: app/build/distributions/debug/*.zip
