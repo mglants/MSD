@@ -65,10 +65,10 @@ pub fn socket_addr() -> SocketAddr {
     SocketAddr::from_abstract_name("msdd").expect("Invalid abstract socket name")
 }
 
-/// Check that SELinux is enabled, enforcing, and that the policy seems to be
-/// correct. This acts as a sanity check since we rely on SELinux for access
-/// control.
-fn check_selinux() -> Result<()> {
+/// Check that SELinux is enabled and that the policy seems to be correct.
+/// When `allow_permissive` is `false`, also verify that SELinux is enforcing.
+/// This acts as a sanity check since we rely on SELinux for access control.
+fn check_selinux(allow_permissive: bool) -> Result<()> {
     let path = Path::new(SELINUX_ENFORCE);
 
     let mut file = File::open(path)
@@ -79,8 +79,12 @@ fn check_selinux() -> Result<()> {
         .read_u8()
         .with_context(|| format!("Failed to read file: {path:?}"))?;
 
-    if value != b'1' {
+    if value != b'1' && !allow_permissive {
         bail!("Denying connection because SELinux is not enforcing");
+    }
+
+    if allow_permissive {
+        return Ok(());
     }
 
     // Our policy denies connections to ourselves. Try it to test that the
@@ -265,8 +269,8 @@ fn handle_request(request: &Request) -> Response {
     })
 }
 
-fn handle_client(mut stream: UnixStream) -> Result<()> {
-    check_selinux()?;
+fn handle_client(mut stream: UnixStream, allow_permissive: bool) -> Result<()> {
+    check_selinux(allow_permissive)?;
     negotiate_protocol(&mut stream)?;
 
     loop {
@@ -341,7 +345,7 @@ fn drop_privileges() -> Result<()> {
     Ok(())
 }
 
-pub fn subcommand_daemon(_cli: &DaemonCli) -> Result<()> {
+pub fn subcommand_daemon(cli: &DaemonCli) -> Result<()> {
     drop_privileges()?;
 
     let listener =
@@ -352,6 +356,7 @@ pub fn subcommand_daemon(_cli: &DaemonCli) -> Result<()> {
             let stream = stream.context("Failed to accept incoming connection")?;
             let ucred = rustix::net::sockopt::socket_peercred(&stream)
                 .context("Failed to get socket peer credentials")?;
+            let allow_permissive = cli.allow_permissive_selinux;
 
             scope.spawn(move || {
                 let _span = info_span!(
@@ -369,7 +374,7 @@ pub fn subcommand_daemon(_cli: &DaemonCli) -> Result<()> {
 
                 info!("Received connection");
 
-                if let Err(e) = handle_client(stream) {
+                if let Err(e) = handle_client(stream, allow_permissive) {
                     error!("Thread failed: {e:?}");
                 }
             });
@@ -383,4 +388,8 @@ pub fn subcommand_daemon(_cli: &DaemonCli) -> Result<()> {
 
 /// Run daemon.
 #[derive(Debug, Parser)]
-pub struct DaemonCli;
+pub struct DaemonCli {
+    /// Allow connections even when SELinux is not enforcing.
+    #[arg(long)]
+    pub allow_permissive_selinux: bool,
+}
